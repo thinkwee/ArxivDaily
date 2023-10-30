@@ -9,7 +9,7 @@
     export database_id="YOUR_NOTION_DATABASE_ID" 
     export integration_token="YOUR_NOTION_INTEGRATION_TOKEN"
 ```
-- parse recent paper and filter with keyword:
+- parse recent paper and filter with keyword (you need to mkdir logs and papers in the first time):
 ```python
     python3 execute_parse.py agent
 ```
