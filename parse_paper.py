@@ -52,6 +52,13 @@ def parse(logger, arxiv_url, keyword):
     for file_pdf in os.listdir("./papers/"):
         if file_pdf.endswith(".pdf"):
             exist_file_list.add(norm(file_pdf).rstrip(".pdf"))
+    
+    exist_parse = set()
+    with open("./exist", "r") as f:
+        for line in f:
+            exist_parse.add(line.strip())
+    
+    fw_exist_parse = open("./exist", "a")
 
     if response.status_code == 200:
         html_source = response.text
@@ -67,7 +74,11 @@ def parse(logger, arxiv_url, keyword):
             title = paper.find('div', class_='list-title mathjax').text.strip()
 
             if norm(title) in exist_file_list:
-                logger.info("⚠️ 【parsed before, pass】\tPaper {}, {},".format(idx, title))
+                logger.info("⚠️ 【downloaded before, pass】\tPaper {}, {},".format(idx, title))
+                continue
+
+            if norm(title) in exist_parse:
+                logger.info("⚠️ 【checked before, pass】\tPaper {}, {},".format(idx, title))
                 continue
 
             authors = paper.find('div', class_='list-authors').text.strip()
@@ -86,6 +97,7 @@ def parse(logger, arxiv_url, keyword):
 
             if keyword not in title.lower() and keyword not in abstract.lower():
                 logger.info("⚠️ 【not related to {}, pass】\tPaper {}, {},".format(keyword, idx, title))
+                fw_exist_parse.write(norm(title) + "\n")
                 continue
 
             version_info = paper_soup.find('div', class_='submission-history').text.strip()
@@ -108,9 +120,10 @@ def parse(logger, arxiv_url, keyword):
                 pdf_text += page.get_text()
 
             logger.info("✅ 【parsed】\tPaper {}, {},".format(idx, title))
+            fw_exist_parse.write(norm(title) + "\n")
 
             statistic.append([title, authors, paper_url, date, abstract])
-
+        fw_exist_parse.close()
     else:
         logger.info("❌ Error parse {} with status_code: {}".format(arxiv_url, response.status_code))
 
