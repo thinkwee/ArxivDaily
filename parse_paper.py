@@ -83,9 +83,9 @@ def parse(logger, arxiv_url, keyword):
 
             authors = paper.find('div', class_='list-authors').text.strip()
 
-            paper_link = meta.find('span', class_='list-identifier').find('a')['href']
+            paper_link = meta.find('a', title="Download PDF")['href']
 
-            paper_url = "https://arxiv.org" + paper_link
+            paper_url = "https://arxiv.org" + paper_link.replace("pdf", "abs")
 
             abstract = ""
             try:
@@ -99,7 +99,6 @@ def parse(logger, arxiv_url, keyword):
                 logger.info("⚠️ 【not related to {}, pass】\tPaper {}, {},".format(keyword, idx, title))
                 fw_exist_parse.write(norm(title) + "\n")
                 continue
-
             version_info = paper_soup.find('div', class_='submission-history').text.strip()
             date_pattern = r'\w{3}, \d{1,2} \w{3} \d{4} \d{1,2}:\d{1,2}:\d{1,2} UTC'
 
@@ -110,14 +109,14 @@ def parse(logger, arxiv_url, keyword):
             else:
                 date = "Empty Date"
 
-            pdf_link = "https://arxiv.org/pdf/" + paper_link.lstrip("/abs/")
-            pdf_filename = download_paper_pdf(title, pdf_link)
+            # pdf_link = "https://arxiv.org/pdf/" + paper_link.lstrip("/abs/")
+            # pdf_filename = download_paper_pdf(title, pdf_link)
 
-            pdf_text = ""
-            pdf_document = fitz.open("./papers/" + pdf_filename)
-            for page_num in range(len(pdf_document)):
-                page = pdf_document[page_num]
-                pdf_text += page.get_text()
+            # pdf_text = ""
+            # pdf_document = fitz.open("./papers/" + pdf_filename)
+            # for page_num in range(len(pdf_document)):
+            #     page = pdf_document[page_num]
+            #     pdf_text += page.get_text()
 
             logger.info("✅ 【parsed】\tPaper {}, {},".format(idx, title))
             fw_exist_parse.write(norm(title) + "\n")
