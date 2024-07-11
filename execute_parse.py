@@ -86,8 +86,8 @@ def add_top(content_json, name, contents, titles):
     for title, content in zip(titles, contents):
         content_json['children'].append({
             'object': 'block',
-            'type': 'heading_2',
-            'heading_2': {
+            'type': 'toggle',
+            'toggle': {
                 'text': [
                     {
                         'type': 'text',
@@ -158,7 +158,7 @@ def get_content(link):
     titles = []
     for item in group[:3]:
         msg = ""
-        msg += "Author: " + " ".join(item[1].split("\n")[1:]) + "\n"
+        msg += "Author: " + item[1] + "\n"
         msg += "Arxiv Link: " + item[2] + "\n"
         msg += "Submission Time: " + item[3] + "\n"
         msg += item[4]+ "\n"
