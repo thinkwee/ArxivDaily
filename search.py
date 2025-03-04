@@ -27,20 +27,30 @@ def get_search(logger, link, cat, keyword):
     if link != cat:
         return 0, []
     ret = []
-    search = arxiv.Search(
-      query = "ti:{} AND cat:{}".format(keyword, cat),
-      max_results = cat2max[cat],
-      sort_by = arxiv.SortCriterion.SubmittedDate
-    )
+    try:
+        search = arxiv.Search(
+          query = "ti:{} AND cat:{}".format(keyword, cat),
+          max_results = cat2max.get(cat, 100),
+          sort_by = arxiv.SortCriterion.SubmittedDate
+        )
+        
+        count = 0 
+        try:
+            for r in client.results(search):
+                try:
+                    if r.title in exist:
+                        continue
+                    fw.write(r.title + "\n")
+                    logger.info("{}: {}\t{}".format(count, r.title, str(r.published)))
+                    ret.append([r.title, " ".join([item.name for item in r.authors]), r.pdf_url, r.published, r.summary])
+                    count += 1
+                except Exception as e:
+                    logger.error(f"Error processing paper: {str(e)}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error getting results from ArXiv: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error creating ArXiv search: {str(e)}")
     
-    count = 0 
-    for r in client.results(search):
-        if r.title in exist:
-            continue
-        fw.write(r.title + "\n")
-        logger.info("{}: {}\t{}".format(count, r.title, str(r.published)))
-        ret.append([r.title, " ".join([item.name for item in r.authors]), r.pdf_url, r.published, r.summary])
-        count += 1
-
     return len(ret), ret
 

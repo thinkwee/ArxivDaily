@@ -4,9 +4,31 @@ from parse_paper import parse
 from send_notion import send
 from logging import handlers
 import sys
+import argparse
+from datetime import datetime, timedelta
 
-keyword = sys.argv[1]
+# Create argument parser
+parser = argparse.ArgumentParser(description='Parse arxiv papers with keyword filtering')
+parser.add_argument('keyword', help='Keyword to filter papers')
+parser.add_argument('--month', type=int, help='Month to parse (1-12)')
+parser.add_argument('--year', type=int, help='Year to parse')
 
+# Parse arguments
+args = parser.parse_args()
+keyword = args.keyword
+specified_month = args.month
+specified_year = args.year
+
+# Validate month if provided
+if specified_month is not None and (specified_month < 1 or specified_month > 12):
+    print("Month must be between 1 and 12")
+    sys.exit(1)
+
+# Validate year if provided
+current_year = datetime.now().year
+if specified_year is not None and (specified_year < 1991 or specified_year > current_year):
+    print(f"Year must be between 1991 and {current_year}")
+    sys.exit(1)
 
 class Logger(object):
     level_relations = {
@@ -151,61 +173,118 @@ def add_complete_titles(content_json, contents):
 
 
 def get_content(link):
-    name = link.split("/")[4]
+    name = "Unknown"
+    try:
+        name = link.split("/")[4]
+    except Exception as e:
+        logger.error(f"Error extracting name from link: {str(e)}")
+    
     logger.info(name)
-    num, group = parse(logger, link, keyword)
+    num = 0
+    group = []
+    
+    try:
+        num, group = parse(logger, link, keyword)
+    except Exception as e:
+        logger.error(f"Error parsing {link}: {str(e)}")
+    
     contents = []
     titles = []
-    for item in group[:3]:
-        msg = ""
-        msg += "Authors:\n" + item[1] + "\n\n"
-        msg += "Arxiv Link:\n" + item[2] + "\n\n"
-        msg += "Submission Time:\n" + item[3] + "\n\n"
-        msg += item[4] + "\n"
-        msg += "-" * 10 + "\n\n"
-        contents.append(msg)
-        title = item[0].lstrip("Title: ").strip()
-        titles.append(title)
+    
+    try:
+        for item in group[:3]:
+            try:
+                msg = ""
+                msg += "Authors:\n" + item[1] + "\n\n"
+                # Create properly formatted hyperlink for Notion
+                arxiv_url = item[2]
+                msg += f"Arxiv Link:\n{arxiv_url}\n\n"
+                msg += "Submission Time:\n" + item[3] + "\n\n"
+                msg += item[4] + "\n"
+                msg += "-" * 10 + "\n\n"
+                contents.append(msg)
+                title = item[0].lstrip("Title: ").strip()
+                titles.append(title)
+            except Exception as e:
+                logger.error(f"Error creating content for paper: {str(e)}")
+                continue
+    except Exception as e:
+        logger.error(f"Error processing group: {str(e)}")
 
-    if len(group) == 0:
+    try:
+        if len(group) == 0:
+            msg_all = ""
+        else:
+            msg_all = "\n【Complete " + name + " {} Paper List】\n\n".format(keyword)
+            for idx, item in enumerate(group):
+                try:
+                    title = item[0].lstrip("Title:").strip()
+                    arxiv_url = item[2]
+                    # Create hyperlink format for Notion
+                    msg_all += f"- Title: {title}\n"
+                    msg_all += f"- Arxiv Link: {arxiv_url}\n\n"
+                except Exception as e:
+                    logger.error(f"Error adding paper to complete list: {str(e)}")
+                    continue
+    except Exception as e:
+        logger.error(f"Error creating message all: {str(e)}")
         msg_all = ""
-    else:
-        msg_all = "\n【Complete " + name + " {} Paper List】\n\n".format(keyword)
-        for idx, item in enumerate(group):
-            msg_all += "- Title: " + item[0].lstrip("Title:").strip() + "\n"
-            msg_all += "- Arxiv Link: " + item[2] + "\n\n"
+    
+    # Ensure content length is limited to prevent API issues
     contents = [item[:2000] for item in contents]
     return num, contents, titles, msg_all, name, group
 
 
-links = [
-    "https://arxiv.org/list/cs.CL/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.CV/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.CY/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.HC/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.IR/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.LG/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.MA/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.SE/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.NE/pastweek?skip=0&show=100",
-    "https://arxiv.org/list/cs.AI/pastweek?skip=0&show=100"
+# Base URLs for different categories
+base_categories = [
+    "cs.CL", "cs.CV", "cs.CY", "cs.HC", "cs.IR", 
+    "cs.LG", "cs.MA", "cs.SE", "cs.NE", "cs.AI"
 ]
+
+# Generate links based on date parameters or use past 30 days as default
+links = []
+if specified_month is not None and specified_year is not None:
+    # Format the date range
+    date_param = f"{specified_year}{specified_month:02d}"
+    
+    # ArXiv date format for specific month: YYMM
+    for category in base_categories:
+        links.append(f"https://arxiv.org/list/{category}/{date_param}?skip=0&show=2000")
+    
+    time_period = f"{specified_month}/{specified_year}"
+    logger.info(f"Parsing papers from {time_period}")
+else:
+    # Use the past 30 days (not just last calendar month)
+    # For ArXiv, we need to use "pastweek" parameter
+    # and can't directly specify a custom date range of 30 days
+    # So we'll use "pastweek" but request more papers
+    for category in base_categories:
+        links.append(f"https://arxiv.org/list/{category}/pastweek?skip=0&show=2000")
+    
+    # Calculate the date range for display purposes
+    today = datetime.now()
+    thirty_days_ago = today - timedelta(days=30)
+    time_period = f"the past 30 days ({thirty_days_ago.strftime('%Y-%m-%d')} to {today.strftime('%Y-%m-%d')})"
+    logger.info(f"Parsing papers from {time_period}")
 
 all_response = []
 msg_opening = ""
 count_read = 0
+
 for link in links:
     num, contents, titles, msg_all, name, group = get_content(link)
     all_response.append([num, contents, titles, msg_all, name, group])
-    msg_opening += "Parse latest " + str(num) + " " + name + " Arxiv papers, in which there are " + str(
-        len(group)) + " papers related to " + keyword + "\n"
+    msg_opening += f"Parse {time_period}'s {num} {name} Arxiv papers, in which there are {len(group)} papers related to {keyword}\n"
     count_read += len(group)
 
 content_json = create_title(msg_opening)
+
+# First add complete titles at the top (after the title)
+content_json = add_complete_titles(content_json, [item[3] for item in all_response])
+
+# Then add the detailed paper sections
 for num, contents, titles, msg_all, name, group in all_response:
     content_json = add_top(content_json, name, contents, titles)
-
-content_json = add_complete_titles(content_json, [item[3] for item in all_response])
 
 nums_related = [len(item[-1]) for item in all_response]
 page_id = send(logger, content_json, nums_related)

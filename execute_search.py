@@ -32,7 +32,12 @@ name = "search_" + cat
 project_path = current_directory = os.getcwd()
 logger = Logger(os.path.join(project_path, 'logs','PaperDailyExpress_' + name + '.log')).logger
 
-database_id = os.environ['database_id']
+# Fix: Add try-except block to safely get environment variable
+try:
+    database_id = os.environ['database_id']
+except KeyError:
+    logger.error("Environment variable 'database_id' not found")
+    database_id = ""  # Provide a default value or handle appropriately
 
 def create_title(text):
     content_json = {
@@ -78,7 +83,7 @@ def add_top(content_json, name, contents, titles):
                 {
                     'type': 'text',
                     'text': {
-                        'content': name + " Latest 3 {} Related Paper Details".format(keyword),
+                        'content': name + " Latest 3 " + keyword + " Related Paper Details",
                     },
                 },
             ],
@@ -126,7 +131,7 @@ def add_complete_titles(content_json, contents):
                 {
                     'type': 'text',
                     'text': {
-                        'content': "Complete {} Paper List".format(keyword),
+                        'content': "Complete " + keyword + " Paper List",
                     },
                 },
             ],
@@ -155,31 +160,64 @@ def add_complete_titles(content_json, contents):
 def get_content(link):
     name = link
     logger.info(name)
-    num, group = get_search(logger, link, cat, keyword)
+    num = 0
+    group = []
+    
+    try:
+        num, group = get_search(logger, link, cat, keyword)
+    except Exception as e:
+        logger.error(f"Error in get_search for {link}: {str(e)}")
+    
     contents = []
     titles = []
-    for item in group[:3]:
-        msg = ""
-        msg += "Author: " + item[1] + "\n"
-        msg += "Arxiv Link: " + item[2] + "\n"
-        msg += "Submission Time: " + str(item[3]) + "\n"
-        msg += item[4]+ "\n"
-        msg += "-" * 10 + "\n\n"
-        contents.append(msg)
-        titles.append(item[0].lstrip("Title: "))
+    
+    try:
+        for item in group[:3]:
+            msg = ""
+            try:
+                msg += "Author: " + (item[1] if len(item) > 1 else "Unknown") + "\n"
+                msg += "Arxiv Link: " + (item[2] if len(item) > 2 else "#") + "\n"
+                msg += "Submission Time: " + str(item[3] if len(item) > 3 else "N/A") + "\n"
+                msg += (item[4] if len(item) > 4 else "") + "\n"
+                msg += "-" * 10 + "\n\n"
+                contents.append(msg)
+                titles.append(item[0].lstrip("Title: ") if len(item) > 0 else "Unknown Title")
+            except Exception as e:
+                logger.error(f"Error formatting paper content: {str(e)}")
+                continue
+    except Exception as e:
+        logger.error(f"Error processing group: {str(e)}")
 
-    if len(group) == 0:
-        msg_all = [""]
-    else:
-        msg_all = ["【Complete " + name + " {} Paper List】".format(keyword)]
-        msg = ""
-        for idx, item in enumerate(group):
-            msg += str(idx + 1) + ") Title: " + item[0].lstrip("Title:") + "\n"
-            msg += "    Arxiv Link: " + item[2] + "\n\n"
-            if (idx + 1) % 10 == 0:
+    try:
+        if len(group) == 0:
+            msg_all = [""]
+        else:
+            msg_all = ["【Complete " + name + " " + keyword + " Paper List】"]
+            msg = ""
+            for idx, item in enumerate(group):
+                try:
+                    if len(item) > 0:
+                        msg += str(idx + 1) + ") Title: " + item[0].lstrip("Title:") + "\n"
+                        if len(item) > 2:
+                            msg += "    Arxiv Link: " + item[2] + "\n\n"
+                        else:
+                            msg += "    Arxiv Link: N/A\n\n"
+                    
+                    if (idx + 1) % 10 == 0:
+                        msg_all.append(msg)
+                        msg = ""
+                except Exception as e:
+                    logger.error(f"Error adding paper to complete list: {str(e)}")
+                    continue
+            if msg:  # Add remaining items if any
                 msg_all.append(msg)
-                msg = ""
+    except Exception as e:
+        logger.error(f"Error creating message all: {str(e)}")
+        msg_all = [""]
+    
+    # Ensure content length is limited to prevent API issues
     contents = [item[:2000] for item in contents]
+    
     return num, contents, titles, msg_all, name, group
 
 links = [
@@ -190,21 +228,24 @@ links = [
     "cs.NE", "cs.AI"
 ]
 
-all_response = []
-msg_opening = ""
-count_read = 0
-for link in links:
-    num, contents, titles, msg_all, name, group = get_content(link)
-    all_response.append([num, contents, titles, msg_all, name, group])
-    msg_opening += "Parse latest " + str(num) + " " + name + " Arxiv papers, in which there are " + str(len(group)) + " papers related to {}\n".format(keyword)
-    count_read += len(group)
+try:
+    all_response = []
+    msg_opening = ""
+    count_read = 0
+    for link in links:
+        num, contents, titles, msg_all, name, group = get_content(link)
+        all_response.append([num, contents, titles, msg_all, name, group])
+        msg_opening += "Parse latest " + str(num) + " " + name + " Arxiv papers, in which there are " + str(len(group)) + " papers related to " + keyword + "\n"
+        count_read += len(group)
 
-content_json = create_title(msg_opening)
-for num, contents, titles, msg_all, name, group in all_response:
-    content_json = add_top(content_json, name, contents, titles)
+    content_json = create_title(msg_opening)
+    for num, contents, titles, msg_all, name, group in all_response:
+        content_json = add_top(content_json, name, contents, titles)
 
-content_json = add_complete_titles(content_json, [item[3] for item in all_response])
+    content_json = add_complete_titles(content_json, [item[3] for item in all_response])
 
-nums_related = [len(item[-1]) for item in all_response]
-page_id = send(cat, logger, content_json, nums_related)
-logger.info(page_id)
+    nums_related = [len(item[-1]) for item in all_response]
+    page_id = send(cat, logger, content_json, nums_related, database_id)  # Pass database_id to send function
+    logger.info(page_id)
+except Exception as e:
+    logger.error(f"Error in main execution flow: {str(e)}")
